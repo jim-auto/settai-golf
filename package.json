@@ -1,0 +1,25 @@
+{
+  "name": "settai-golf",
+  "version": "0.1.0",
+  "private": true,
+  "homepage": "https://jim-auto.github.io/settai-golf/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jim-auto/settai-golf.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "screenshots": "node scripts/capture-screenshots.mjs",
+    "deploy": "npm run build && gh-pages -d dist"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "gh-pages": "^6.3.0",
+    "playwright": "^1.60.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
