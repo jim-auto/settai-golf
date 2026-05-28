@@ -63,6 +63,19 @@ if (!canvasContext) {
 }
 const ctx: CanvasRenderingContext2D = canvasContext;
 
+const generatedImages = {
+  keyVisual: loadImage("generated/key-visual.png"),
+  bossPortrait: loadImage("generated/boss-portrait.png"),
+  clubhouseIncident: loadImage("generated/clubhouse-incident.png")
+};
+
+function loadImage(path: string) {
+  const image = new Image();
+  image.decoding = "async";
+  image.src = `${import.meta.env.BASE_URL}${path}`;
+  return image;
+}
+
 const conversations: Conversation[] = [
   {
     speaker: "営業本部長 大河内",
@@ -791,7 +804,38 @@ function roundRect(x: number, y: number, w: number, h: number, r: number) {
   ctx.closePath();
 }
 
+function drawImageCover(image: HTMLImageElement, x: number, y: number, w: number, h: number, alpha = 1) {
+  if (!image.complete || image.naturalWidth === 0) return false;
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const targetRatio = w / h;
+  const drawW = imageRatio > targetRatio ? h * imageRatio : w;
+  const drawH = imageRatio > targetRatio ? h : w / imageRatio;
+  const drawX = x + (w - drawW) / 2;
+  const drawY = y + (h - drawH) / 2;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(image, drawX, drawY, drawW, drawH);
+  ctx.restore();
+  return true;
+}
+
 function drawBackground(w: number, h: number) {
+  if (phase === "title" && drawImageCover(generatedImages.keyVisual, 0, 0, w, h, 1)) {
+    const overlay = ctx.createLinearGradient(0, 0, 0, h);
+    overlay.addColorStop(0, "rgba(9, 18, 14, 0.34)");
+    overlay.addColorStop(0.52, "rgba(9, 18, 14, 0.22)");
+    overlay.addColorStop(1, "rgba(9, 18, 14, 0.72)");
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+
+  if (phase === "incident" && drawImageCover(generatedImages.clubhouseIncident, 0, 0, w, h, 0.42)) {
+    ctx.fillStyle = "rgba(10, 18, 12, 0.48)";
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+
   const sky = ctx.createLinearGradient(0, 0, 0, h);
   sky.addColorStop(0, "#c8ddcf");
   sky.addColorStop(0.42, "#eef0d7");
@@ -978,6 +1022,24 @@ function drawCharacter(name: string, role: string, x: number, y: number, mood: M
   ctx.fillText(role, x - tagW / 2 + 10, y + 112);
 }
 
+function drawBossPortrait(x: number, y: number) {
+  if (!generatedImages.bossPortrait.complete || generatedImages.bossPortrait.naturalWidth === 0) return false;
+  const w = 148;
+  const h = 190;
+  drawPanel(x - w / 2, y - 126, w, h, "rgba(248, 242, 223, 0.9)");
+  ctx.save();
+  roundRect(x - w / 2 + 8, y - 118, w - 16, h - 54, 8);
+  ctx.clip();
+  drawImageCover(generatedImages.bossPortrait, x - w / 2 + 8, y - 118, w - 16, h - 54, 1);
+  ctx.restore();
+  ctx.fillStyle = "#1f2d27";
+  ctx.font = "900 12px 'Yu Gothic', sans-serif";
+  ctx.fillText("大河内", x - w / 2 + 14, y + 42);
+  ctx.font = "700 11px 'Yu Gothic', sans-serif";
+  ctx.fillText(bossMood === "pleased" ? "満足げな上司" : bossMood === "suspicious" ? "疑念の上司" : "上司", x - w / 2 + 14, y + 58);
+  return true;
+}
+
 function drawReactionStage(w: number, h: number) {
   if (phase === "title" || phase === "final" || w < 760) return;
   const stageW = Math.min(560, w - 420);
@@ -994,7 +1056,9 @@ function drawReactionStage(w: number, h: number) {
   drawText(reactionText, x + 18, y - 74, stageW - 36, 23);
 
   drawCharacter("あなた", "若手社員", x + stageW * 0.22, y, playerMood, "#2e5362");
-  drawCharacter("大河内", "上司", x + stageW * 0.5, y - 6, bossMood, "#293044");
+  if (!drawBossPortrait(x + stageW * 0.5, y + 18)) {
+    drawCharacter("大河内", "上司", x + stageW * 0.5, y - 6, bossMood, "#293044");
+  }
   drawCharacter("同伴者", "取引先/社内", x + stageW * 0.78, y, roomMood, "#4a3b52");
 }
 

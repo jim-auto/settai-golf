@@ -38,6 +38,10 @@ Settai Golf は本格ゴルフゲームではありません。
 
 ## スクリーンショット
 
+### AI生成キービジュアル
+
+![Settai Golf key visual](public/generated/key-visual.png)
+
 ### タイトル
 
 ![Title screen](docs/screenshots/title.png)
@@ -53,6 +57,12 @@ Settai Golf は本格ゴルフゲームではありません。
 ### 最終評価
 
 ![Result screen](docs/screenshots/result.png)
+
+## AI生成アート
+
+- [Key visual](public/generated/key-visual.png)
+- [Boss portrait](public/generated/boss-portrait.png)
+- [Clubhouse incident](public/generated/clubhouse-incident.png)
 
 ## 開発方法
 

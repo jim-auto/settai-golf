@@ -33,6 +33,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 
 await page.goto(baseUrl, { waitUntil: "networkidle" });
+await page.waitForTimeout(1500);
 await page.screenshot({ path: `${outPath}title.png`, fullPage: true });
 
 await page.getByRole("button", { name: "接待を開始" }).click();
