@@ -386,12 +386,16 @@ let activeShot: ShotChoice | null = null;
 let pendingShotMessage = "";
 let shotTarget = 0.42;
 let ballLanding: BallPoint = { x: 0.5, y: 0.82 };
+let previousBall: BallPoint = { x: 0.5, y: 0.86 };
 let ballTrail: BallPoint[] = [];
 let lastLie = "ティー";
 let lastDistanceToPin = 0;
 let shotStage = 1;
 let strokeCount = 0;
 let bossStrokeCount = 4;
+let shotFeedback = "";
+let shotFeedbackTone: "good" | "bad" | "neutral" = "neutral";
+let shotFeedbackAt = -999;
 let bossMood: Mood = "neutral";
 let roomMood: Mood = "neutral";
 let playerMood: Mood = "neutral";
@@ -622,12 +626,15 @@ function currentHoleLayout() {
 
 function resetBallForHole() {
   ballLanding = { x: 0.5, y: 0.86 };
+  previousBall = { ...ballLanding };
   ballTrail = [{ ...ballLanding }];
   lastLie = "ティー";
   lastDistanceToPin = currentHoleLayout().yards;
   shotStage = 1;
   strokeCount = 0;
   bossStrokeCount = 4 + Math.floor(Math.random() * 2);
+  shotFeedback = "";
+  shotFeedbackAt = -999;
 }
 
 function showTitle() {
@@ -763,12 +770,19 @@ function nextPointForStage(timing: number, shot: ShotChoice) {
   };
 }
 
+function setShotFeedback(text: string, tone: "good" | "bad" | "neutral") {
+  shotFeedback = text;
+  shotFeedbackTone = tone;
+  shotFeedbackAt = animationTime;
+}
+
 function commitTimedShot() {
   if (!activeShot) return;
   const timing = currentShotTiming();
   const timingOffset = Math.round((timing - 0.5) * 38);
   lastShotPower = activeShot.power + timingOffset;
   const previous = { ...ballLanding };
+  previousBall = previous;
   ballLanding = nextPointForStage(timing, activeShot);
   ballTrail.push({
     x: (previous.x + ballLanding.x) / 2 + activeShot.curve * 0.25,
@@ -784,16 +798,23 @@ function commitTimedShot() {
   if (targetGap < 0.055) {
     applyDelta({ settai: 6, boss: 4, weird: -3, promotion: 2 });
     addMemo(`タイミング: 接待ゾーン (${formatDelta(lastDelta)})`);
+    setShotFeedback("NICE SETTAI", "good");
   } else if (timing > 0.82) {
     applyDelta({ pride: 6, boss: -4, weird: 2 });
     addMemo(`タイミング: 真芯すぎる (${formatDelta(lastDelta)})`);
+    setShotFeedback("やりすぎ", "bad");
   } else if (timing < 0.16) {
     applyDelta({ weird: 7, settai: -4, fatigue: 2 });
     addMemo(`タイミング: 外しすぎ (${formatDelta(lastDelta)})`);
+    setShotFeedback("演技臭い", "bad");
   } else {
     applyDelta({ settai: 1, fatigue: 1 });
     addMemo(`タイミング: 無難 (${formatDelta(lastDelta)})`);
+    setShotFeedback("無難", "neutral");
   }
+
+  if (lastLie === "池" || lastLie === "OB") setShotFeedback(lastLie, "bad");
+  if (lastLie === "バンカー" && shotFeedbackTone !== "bad") setShotFeedback("ドラマ発生", "neutral");
 
   const lieDelta = applyLieDelta(lastLie);
   applyDelta(lieDelta);
@@ -1256,6 +1277,15 @@ function drawGolfCourse(w: number, h: number) {
   const innerH = courseH - 48;
   const px = (value: number) => innerX + value * innerW;
   const py = (value: number) => innerY + value * innerH;
+  const feedbackAge = animationTime - shotFeedbackAt;
+  const ballProgress = Math.min(1, Math.max(0, feedbackAge / 0.75));
+  const visibleBall =
+    feedbackAge >= 0 && feedbackAge < 0.9
+      ? {
+          x: previousBall.x + (ballLanding.x - previousBall.x) * ballProgress,
+          y: previousBall.y + (ballLanding.y - previousBall.y) * ballProgress - Math.sin(ballProgress * Math.PI) * 0.08
+        }
+      : ballLanding;
 
   ctx.fillStyle = "#78a95c";
   ctx.beginPath();
@@ -1314,11 +1344,31 @@ function drawGolfCourse(w: number, h: number) {
 
   ctx.fillStyle = "#f8f2df";
   ctx.beginPath();
-  ctx.arc(px(ballLanding.x), py(ballLanding.y), 7, 0, Math.PI * 2);
+  ctx.arc(px(visibleBall.x), py(visibleBall.y), 7, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "#1d241f";
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  if (shotFeedback && feedbackAge >= 0 && feedbackAge < 1.8) {
+    const alpha = feedbackAge > 1.2 ? 1 - (feedbackAge - 1.2) / 0.6 : 1;
+    const badgeW = 180;
+    const badgeX = px(visibleBall.x) - badgeW / 2;
+    const badgeY = py(visibleBall.y) - 58 - Math.sin(Math.min(1, feedbackAge) * Math.PI) * 10;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    roundRect(badgeX, badgeY, badgeW, 34, 8);
+    ctx.fillStyle = shotFeedbackTone === "good" ? "rgba(67, 135, 78, 0.94)" : shotFeedbackTone === "bad" ? "rgba(168, 63, 54, 0.94)" : "rgba(35, 45, 43, 0.94)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(248,242,223,0.8)";
+    ctx.stroke();
+    ctx.fillStyle = "#f8f2df";
+    ctx.font = "900 15px 'Yu Gothic', sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(shotFeedback, badgeX + badgeW / 2, badgeY + 22);
+    ctx.textAlign = "left";
+    ctx.restore();
+  }
 
   if (activeShot) {
     const timing = currentShotTiming();
