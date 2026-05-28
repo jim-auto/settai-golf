@@ -389,6 +389,9 @@ let ballLanding: BallPoint = { x: 0.5, y: 0.82 };
 let ballTrail: BallPoint[] = [];
 let lastLie = "ティー";
 let lastDistanceToPin = 0;
+let shotStage = 1;
+let strokeCount = 0;
+let bossStrokeCount = 4;
 let bossMood: Mood = "neutral";
 let roomMood: Mood = "neutral";
 let playerMood: Mood = "neutral";
@@ -622,6 +625,9 @@ function resetBallForHole() {
   ballTrail = [{ ...ballLanding }];
   lastLie = "ティー";
   lastDistanceToPin = currentHoleLayout().yards;
+  shotStage = 1;
+  strokeCount = 0;
+  bossStrokeCount = 4 + Math.floor(Math.random() * 2);
 }
 
 function showTitle() {
@@ -685,7 +691,8 @@ function showShot() {
   phase = "shot";
   activeShot = null;
   pendingShotMessage = "";
-  selectedMessage = "ショット方針を選べ。次にタイミングを止める。狙いは完璧ではなく、少しだけ惜しい接待ゾーン。";
+  const stageName = shotStage === 1 ? "ティーショット" : shotStage === 2 ? "アプローチ" : "パット";
+  selectedMessage = `${stageName}の方針を選べ。残り${lastDistanceToPin}yd。入れすぎても、外しすぎても空気が変わる。`;
   setChoices(shotChoices, (index) => {
     const choice = shotChoices[index];
     applyDelta(choice.delta);
@@ -693,7 +700,7 @@ function showShot() {
     activeShot = choice;
     pendingShotMessage = preferenceMessage ? `${choice.message} ${preferenceMessage}` : choice.message;
     shotTarget = choice.label === currentConversation().favoredShot ? 0.42 : 0.48;
-    selectedMessage = `${choice.label}を構えた。動くゲージを接待ゾーンで止めろ。真芯すぎると勝ちすぎる。`;
+    selectedMessage = `${stageName}: ${choice.label}を構えた。動くゲージを接待ゾーンで止めろ。真芯すぎると勝ちすぎる。`;
     setPrimary("タイミングを止める", commitTimedShot);
   });
 }
@@ -732,20 +739,46 @@ function applyLieDelta(lie: string) {
   return { boss: -8, weird: 9, settai: -6, pressure: 4 };
 }
 
+function stageName() {
+  return shotStage === 1 ? "ティーショット" : shotStage === 2 ? "アプローチ" : "パット";
+}
+
+function nextPointForStage(timing: number, shot: ShotChoice) {
+  const layout = currentHoleLayout();
+  if (shotStage === 1) {
+    const carryRatio = clamp(((shot.power + Math.round((timing - 0.5) * 38) + 8) / 112) * 100) / 100;
+    return {
+      x: Math.max(0.02, Math.min(0.98, 0.5 + shot.curve + (timing - shotTarget) * 0.72)),
+      y: Math.max(0.07, Math.min(0.9, 0.88 - carryRatio * 0.76))
+    };
+  }
+
+  const target = { x: layout.pinX, y: layout.greenY };
+  const aggressiveness = shot.label === "本気ショット" ? 1.08 : shot.label === "安全プレイ" ? 0.82 : shot.label === "忖度ショット" ? 0.92 : 0.75;
+  const progress = shotStage === 2 ? aggressiveness * (0.78 + timing * 0.22) : aggressiveness * (0.9 + timing * 0.16);
+  const miss = (timing - shotTarget) * (shotStage === 2 ? 0.2 : 0.08) + shot.curve * 0.25;
+  return {
+    x: Math.max(0.02, Math.min(0.98, ballLanding.x + (target.x - ballLanding.x) * progress + miss)),
+    y: Math.max(0.06, Math.min(0.9, ballLanding.y + (target.y - ballLanding.y) * progress + Math.abs(miss) * 0.18))
+  };
+}
+
 function commitTimedShot() {
   if (!activeShot) return;
   const timing = currentShotTiming();
   const timingOffset = Math.round((timing - 0.5) * 38);
-  const bossShot = 72 + hole * 2 + Math.round(Math.random() * 12);
   lastShotPower = activeShot.power + timingOffset;
-  lastScoreDiff = lastShotPower - bossShot;
-  const carryRatio = clamp(((lastShotPower + 8) / 112) * 100) / 100;
-  const landingX = Math.max(0.02, Math.min(0.98, 0.5 + activeShot.curve + (timing - shotTarget) * 0.72));
-  const landingY = Math.max(0.07, Math.min(0.9, 0.88 - carryRatio * 0.76));
-  ballLanding = { x: landingX, y: landingY };
-  ballTrail = [{ x: 0.5, y: 0.86 }, { x: (0.5 + landingX) / 2, y: landingY + 0.12 }, ballLanding];
+  const previous = { ...ballLanding };
+  ballLanding = nextPointForStage(timing, activeShot);
+  ballTrail.push({
+    x: (previous.x + ballLanding.x) / 2 + activeShot.curve * 0.25,
+    y: (previous.y + ballLanding.y) / 2 + 0.08
+  });
+  ballTrail.push(ballLanding);
   lastLie = judgeLie(ballLanding);
   lastDistanceToPin = estimateDistanceToPin(ballLanding);
+  strokeCount += 1;
+  lastScoreDiff = strokeCount - bossStrokeCount;
 
   const targetGap = Math.abs(timing - shotTarget);
   if (targetGap < 0.055) {
@@ -766,41 +799,47 @@ function commitTimedShot() {
   applyDelta(lieDelta);
   addMemo(`ライ: ${lastLie} / 残り${lastDistanceToPin}yd (${formatDelta(lastDelta)})`);
 
-  addMemo(`ショット: ${activeShot.label} / 差分 ${lastScoreDiff > 0 ? "+" : ""}${lastScoreDiff}yd`);
-  const message = `${pendingShotMessage} ${currentHoleLayout().name}、${lastLie}に着弾。ピンまで残り${lastDistanceToPin}yd。タイミング値 ${Math.round(timing * 100)}%。`;
+  addMemo(`${stageName()}: ${activeShot.label} / ${lastLie} 残り${lastDistanceToPin}yd`);
+  const holed = shotStage === 3 && lastDistanceToPin <= 10;
+  const message = `${pendingShotMessage} ${stageName()}は${lastLie}。ピンまで残り${lastDistanceToPin}yd。タイミング値 ${Math.round(timing * 100)}%。`;
   activeShot = null;
-  resolveShot(message);
+  if (shotStage < 3 && lastLie !== "OB" && lastLie !== "池") {
+    selectedMessage = `${message} 次は${shotStage === 1 ? "アプローチ" : "パット"}。`;
+    shotStage += 1;
+    setPrimary(shotStage === 2 ? "アプローチへ" : "パットへ", showShot);
+    return;
+  }
+  resolveShot(holed ? `${message} カップイン。だが入れ方が完璧すぎたかもしれない。` : message);
 }
 
 function resolveShot(message: string) {
   phase = "air";
-  const ideal = Math.abs(lastScoreDiff + 4);
-  const tooGood = lastScoreDiff > 8;
-  const tooBad = lastScoreDiff < -24;
-  const natural = ideal < 9;
+  const tooGood = strokeCount < bossStrokeCount;
+  const tooBad = strokeCount > bossStrokeCount + 2 || lastLie === "OB" || lastLie === "池";
+  const natural = strokeCount === bossStrokeCount || strokeCount === bossStrokeCount + 1;
   const delta: Partial<Stats> = {};
 
   if (tooGood) {
     delta.boss = -10;
     delta.pride = 9;
     delta.weird = 5;
-    selectedMessage = `${message} ただし、上司の球をかなり置き去りにした。`;
+    selectedMessage = `${message} ${strokeCount}打。上司より先に仕上がってしまった。`;
   } else if (tooBad) {
     delta.boss = -4;
     delta.weird = 10;
     delta.settai = -7;
-    selectedMessage = `${message} さすがに演技を疑われる距離だ。`;
+    selectedMessage = `${message} ${strokeCount}打。さすがに演技を疑われる崩れ方だ。`;
   } else if (natural) {
     delta.boss = 9;
     delta.settai = 9;
     delta.company = 4;
     delta.promotion = 5;
-    selectedMessage = `${message} 上司より少しだけ悪い。美しい負け方だった。`;
+    selectedMessage = `${message} ${strokeCount}打。上司と同じか少し悪い、美しいホールアウトだった。`;
   } else {
     delta.boss = 3;
     delta.settai = 3;
     delta.company = 1;
-    selectedMessage = `${message} 可もなく不可もないが、会食で取り返せる範囲だ。`;
+    selectedMessage = `${message} ${strokeCount}打。可もなく不可もないが、会食で取り返せる範囲だ。`;
   }
 
   delta.fatigue = 4;
@@ -1264,10 +1303,10 @@ function drawGolfCourse(w: number, h: number) {
 
   ctx.fillStyle = "#e7d397";
   ctx.font = "900 13px 'Yu Gothic', sans-serif";
-  ctx.fillText(`${layout.name} / PAR ${layout.par} / ${layout.yards}yd`, x + 20, y + 28);
+  ctx.fillText(`${layout.name} / PAR ${layout.par} / ${layout.yards}yd / 第${shotStage}打`, x + 20, y + 28);
   ctx.fillStyle = "#f8f2df";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
-  ctx.fillText(`ライ: ${lastLie} / 残り ${lastDistanceToPin}yd`, x + courseW - 178, y + 28);
+  ctx.fillText(`自分 ${strokeCount}打 / 上司想定 ${bossStrokeCount}打 / ${lastLie} 残り${lastDistanceToPin}yd`, x + courseW - 286, y + 28);
 }
 
 function drawAirMemo(w: number, h: number) {
@@ -1355,7 +1394,7 @@ function drawMainCopy(w: number, h: number) {
       : phase === "incident"
         ? `事件: ${currentIncident.title}`
         : phase === "shot"
-        ? "ティーショット"
+        ? stageName()
         : phase === "air"
           ? "空気読み"
           : phase === "result"
@@ -1428,7 +1467,7 @@ function drawMainCopy(w: number, h: number) {
     ctx.fillStyle = "#e7d397";
     ctx.font = "700 14px 'Yu Gothic', sans-serif";
     ctx.fillText(
-      `理想: 少しだけ負ける。相手の好み: ${currentConversation().favoredShot}`,
+      `第${shotStage}打 / 残り${lastDistanceToPin}yd / 相手の好み: ${currentConversation().favoredShot}`,
       x + 24,
       y + 174
     );
@@ -1450,7 +1489,7 @@ function drawShotMeter(w: number, h: number) {
     drawPanel(x, y, meterW, 108, "rgba(248, 242, 223, 0.92)");
     ctx.fillStyle = "#1f2d27";
     ctx.font = "900 15px 'Yu Gothic', sans-serif";
-    ctx.fillText("接待タイミング", x + 18, y + 28);
+    ctx.fillText(`${stageName()} 接待タイミング`, x + 18, y + 28);
     ctx.font = "700 12px 'Yu Gothic', sans-serif";
     ctx.fillText("左: 演技臭い / 中央: 接待ゾーン / 右: 勝ちすぎ", x + 18, y + 50);
 
@@ -1488,16 +1527,16 @@ function drawShotMeter(w: number, h: number) {
   drawPanel(x, y, 380, 78, "rgba(248, 242, 223, 0.9)");
   ctx.fillStyle = "#1f2d27";
   ctx.font = "800 13px 'Yu Gothic', sans-serif";
-  ctx.fillText("ショット差分", x + 18, y + 26);
+  ctx.fillText("ホール結果", x + 18, y + 26);
   ctx.font = "900 22px 'Yu Gothic', sans-serif";
   const sign = lastScoreDiff > 0 ? "+" : "";
-  ctx.fillText(`${sign}${lastScoreDiff} yd`, x + 18, y + 58);
-  ctx.fillStyle = lastScoreDiff > 8 ? "#b44238" : lastScoreDiff < -24 ? "#8750a1" : "#457a45";
+  ctx.fillText(`${strokeCount}打 (${sign}${lastScoreDiff})`, x + 18, y + 58);
+  ctx.fillStyle = lastScoreDiff < 0 ? "#b44238" : lastScoreDiff > 2 ? "#8750a1" : "#457a45";
   roundRect(x + 138, y + 38, 214, 12, 6);
   ctx.fill();
   ctx.fillStyle = "#1f2d27";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
-  ctx.fillText("狙い目: -4 yd 前後", x + 214, y + 27);
+  ctx.fillText("狙い目: 上司と同じか+1打", x + 198, y + 27);
 }
 
 function draw() {

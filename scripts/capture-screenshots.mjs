@@ -14,6 +14,18 @@ async function clickFirstChoice(page) {
 async function playHole(page, shotLabel = "忖度ショット") {
   await clickFirstChoice(page);
   await clickFirstChoice(page);
+  await playStroke(page, shotLabel);
+  await page.getByRole("button", { name: "アプローチへ" }).click();
+  await page.waitForTimeout(250);
+  await playStroke(page, "安全プレイ");
+  await page.getByRole("button", { name: "パットへ" }).click();
+  await page.waitForTimeout(250);
+  await playStroke(page, "忖度ショット");
+  await page.getByRole("button", { name: "空気を読む" }).click();
+  await page.waitForTimeout(250);
+}
+
+async function playStroke(page, shotLabel) {
   const shot = page.getByRole("button", { name: new RegExp(shotLabel) });
   if (await shot.count()) {
     await shot.first().click();
@@ -22,8 +34,6 @@ async function playHole(page, shotLabel = "忖度ショット") {
   }
   await page.waitForTimeout(450);
   await page.getByRole("button", { name: "タイミングを止める" }).click();
-  await page.waitForTimeout(250);
-  await page.getByRole("button", { name: "空気を読む" }).click();
   await page.waitForTimeout(250);
 }
 
@@ -48,6 +58,12 @@ await page.screenshot({ path: `${outPath}shot-minigame.png`, fullPage: true });
 
 await page.getByRole("button", { name: "タイミングを止める" }).click();
 await page.waitForTimeout(250);
+await page.getByRole("button", { name: "アプローチへ" }).click();
+await page.waitForTimeout(250);
+await playStroke(page, "安全プレイ");
+await page.getByRole("button", { name: "パットへ" }).click();
+await page.waitForTimeout(250);
+await playStroke(page, "忖度ショット");
 await page.getByRole("button", { name: "空気を読む" }).click();
 await page.waitForTimeout(250);
 await page.getByRole("button", { name: "次のホールへ" }).click();
