@@ -1049,6 +1049,32 @@ function drawText(text: string, x: number, y: number, maxWidth: number, lineHeig
   }
 }
 
+function drawTextLimited(text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
+  const chars = [...text];
+  let line = "";
+  let lineIndex = 0;
+  for (const char of chars) {
+    const next = line + char;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      if (lineIndex >= maxLines - 1) {
+        while (ctx.measureText(`${line}...`).width > maxWidth && line.length > 0) {
+          line = line.slice(0, -1);
+        }
+        ctx.fillText(`${line}...`, x, y + lineIndex * lineHeight);
+        return;
+      }
+      ctx.fillText(line, x, y + lineIndex * lineHeight);
+      line = char;
+      lineIndex += 1;
+    } else {
+      line = next;
+    }
+  }
+  if (line && lineIndex < maxLines) {
+    ctx.fillText(line, x, y + lineIndex * lineHeight);
+  }
+}
+
 function drawGauge(label: string, value: number, x: number, y: number, w: number, color: string) {
   ctx.fillStyle = "#f7efd7";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
@@ -1203,13 +1229,13 @@ function drawReactionStage(w: number, h: number) {
 
 function drawGolfCourse(w: number, h: number) {
   if (phase !== "shot" && phase !== "air" && phase !== "result") return;
-  const courseW = Math.min(600, w - 40);
-  const courseH = Math.min(310, h * 0.38);
+  const courseW = Math.min(700, w - 420);
+  const courseH = Math.min(300, h * 0.34);
   const x = (w - courseW) / 2;
-  const y = Math.max(405, h * 0.43);
+  const y = Math.max(370, h * 0.41);
   const layout = currentHoleLayout();
 
-  if (y + courseH > h - 96) return;
+  if (courseW < 420 || y + courseH > h - 150) return;
 
   drawPanel(x, y, courseW, courseH, "rgba(18, 35, 28, 0.78)");
   ctx.save();
@@ -1218,6 +1244,11 @@ function drawGolfCourse(w: number, h: number) {
 
   ctx.fillStyle = "#315f3b";
   ctx.fillRect(x + 10, y + 10, courseW - 20, courseH - 20);
+
+  for (let i = 0; i < 9; i += 1) {
+    ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.035)";
+    ctx.fillRect(x + 10 + i * ((courseW - 20) / 9), y + 10, (courseW - 20) / 9, courseH - 20);
+  }
 
   const innerX = x + 24;
   const innerY = y + 24;
@@ -1234,6 +1265,15 @@ function drawGolfCourse(w: number, h: number) {
   ctx.bezierCurveTo(px(0.58), py(0.52), px(0.76), py(0.76), px(0.54), py(0.9));
   ctx.closePath();
   ctx.fill();
+
+  ctx.strokeStyle = "rgba(248,242,223,0.16)";
+  ctx.lineWidth = 2;
+  for (let i = 1; i < 4; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(px(0.18), py(0.86 - i * 0.17));
+    ctx.bezierCurveTo(px(0.38), py(0.78 - i * 0.14), px(0.65), py(0.63 - i * 0.11), px(0.82), py(0.49 - i * 0.08));
+    ctx.stroke();
+  }
 
   ctx.fillStyle = "#91bd68";
   ctx.beginPath();
@@ -1307,6 +1347,23 @@ function drawGolfCourse(w: number, h: number) {
   ctx.fillStyle = "#f8f2df";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
   ctx.fillText(`自分 ${strokeCount}打 / 上司想定 ${bossStrokeCount}打 / ${lastLie} 残り${lastDistanceToPin}yd`, x + courseW - 286, y + 28);
+
+  const legendX = x + 20;
+  const legendY = y + courseH - 24;
+  const legend = [
+    ["#91bd68", "Green"],
+    ["#78a95c", "Fairway"],
+    ["#d5bf78", "Bunker"],
+    ["#5c98a7", "Water"]
+  ];
+  legend.forEach(([color, label], index) => {
+    ctx.fillStyle = color;
+    roundRect(legendX + index * 88, legendY - 8, 18, 10, 3);
+    ctx.fill();
+    ctx.fillStyle = "#f8f2df";
+    ctx.font = "700 10px 'Yu Gothic', sans-serif";
+    ctx.fillText(label, legendX + 24 + index * 88, legendY + 1);
+  });
 }
 
 function drawAirMemo(w: number, h: number) {
@@ -1360,11 +1417,20 @@ function drawBusinessCard(w: number, h: number) {
 }
 
 function drawMainCopy(w: number, h: number) {
+  const isGolfPhase = phase === "shot" || phase === "air" || phase === "result";
   const panelW = Math.min(760, w - 32);
   const x = (w - panelW) / 2;
-  const y = phase === "title" ? h * 0.22 : Math.max(w < 760 ? 118 : 210, h * 0.18);
+  const y = phase === "title" ? h * 0.22 : Math.max(w < 760 ? 118 : 190, isGolfPhase ? h * 0.18 : h * 0.18);
   const panelH =
-    phase === "title" ? 220 : phase === "final" ? Math.min(390, h - y - 96) : phase === "conversation" && w >= 760 ? 250 : 210;
+    phase === "title"
+      ? 220
+      : phase === "final"
+        ? Math.min(390, h - y - 96)
+        : phase === "conversation" && w >= 760
+          ? 250
+          : isGolfPhase
+            ? 150
+            : 210;
   drawPanel(x, y, panelW, panelH);
 
   ctx.fillStyle = "#f8f2df";
@@ -1402,7 +1468,7 @@ function drawMainCopy(w: number, h: number) {
             : "最終人事評価";
   ctx.fillText(title, x + 24, y + 70);
 
-  ctx.font = "700 18px 'Yu Gothic', sans-serif";
+  ctx.font = `700 ${isGolfPhase ? 16 : 18}px 'Yu Gothic', sans-serif`;
   const body =
     phase === "conversation"
       ? `「${currentConversation().line}」`
@@ -1438,7 +1504,9 @@ function drawMainCopy(w: number, h: number) {
     return;
   }
 
-  if (phase === "conversation" && w >= 760) {
+  if (isGolfPhase) {
+    drawTextLimited(body, x + 24, y + 92, panelW - 48, 20, phase === "shot" ? 1 : 2);
+  } else if (phase === "conversation" && w >= 760) {
     const portraitX = x + panelW - 204;
     const portraitY = y + 26;
     drawPanel(portraitX, portraitY, 176, 198, "rgba(248, 242, 223, 0.92)");
@@ -1460,7 +1528,7 @@ function drawMainCopy(w: number, h: number) {
     ctx.font = "700 13px 'Yu Gothic', sans-serif";
     drawText(`空気プロファイル: ${currentConversation().trait}`, x + 24, y + 182, panelW - 250, 20);
   } else {
-    drawText(body, x + 24, y + 112, panelW - 48, 30);
+    drawText(body, x + 24, y + 112, panelW - 48, isGolfPhase ? 24 : 30);
   }
 
   if (phase === "shot") {
@@ -1469,11 +1537,18 @@ function drawMainCopy(w: number, h: number) {
     ctx.fillText(
       `第${shotStage}打 / 残り${lastDistanceToPin}yd / 相手の好み: ${currentConversation().favoredShot}`,
       x + 24,
-      y + 174
+      y + panelH - 18
     );
   }
 
-  if (phase === "result" && memos[0]) {
+  if (isGolfPhase) {
+    const noteY = y + panelH - 36;
+    ctx.fillStyle = "#d9c98d";
+    ctx.font = "800 12px 'Yu Gothic', sans-serif";
+    ctx.fillText(`CADDIE: ${lastLie}から残り${lastDistanceToPin}yd。理想は上司と同じか+1打。`, x + 24, noteY);
+  }
+
+  if (phase === "result" && memos[0] && !isGolfPhase) {
     ctx.fillStyle = "#d9c98d";
     ctx.font = "700 13px 'Yu Gothic', sans-serif";
     ctx.fillText(`直近メモ: ${memos[0]}`, x + 24, y + 182);
