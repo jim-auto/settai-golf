@@ -63,6 +63,10 @@ Settai Golf は本格ゴルフゲームではありません。
 - [Key visual](public/generated/key-visual.png)
 - [Boss portrait](public/generated/boss-portrait.png)
 - [Clubhouse incident](public/generated/clubhouse-incident.png)
+- [Okochi conversation portrait](public/generated/portrait-okochi.png)
+- [Client conversation portrait](public/generated/portrait-client.png)
+- [Makino conversation portrait](public/generated/portrait-makino.png)
+- [Kanzaki conversation portrait](public/generated/portrait-kanzaki.png)
 
 ## 開発方法
 

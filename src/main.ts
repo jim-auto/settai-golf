@@ -66,7 +66,11 @@ const ctx: CanvasRenderingContext2D = canvasContext;
 const generatedImages = {
   keyVisual: loadImage("generated/key-visual.png"),
   bossPortrait: loadImage("generated/boss-portrait.png"),
-  clubhouseIncident: loadImage("generated/clubhouse-incident.png")
+  clubhouseIncident: loadImage("generated/clubhouse-incident.png"),
+  okochiPortrait: loadImage("generated/portrait-okochi.png"),
+  clientPortrait: loadImage("generated/portrait-client.png"),
+  makinoPortrait: loadImage("generated/portrait-makino.png"),
+  kanzakiPortrait: loadImage("generated/portrait-kanzaki.png")
 };
 
 function loadImage(path: string) {
@@ -819,6 +823,15 @@ function drawImageCover(image: HTMLImageElement, x: number, y: number, w: number
   return true;
 }
 
+function currentSpeakerImage() {
+  const speaker = currentConversation().speaker;
+  if (speaker.includes("大河内")) return generatedImages.okochiPortrait;
+  if (speaker.includes("常務")) return generatedImages.clientPortrait;
+  if (speaker.includes("牧野")) return generatedImages.makinoPortrait;
+  if (speaker.includes("神崎")) return generatedImages.kanzakiPortrait;
+  return generatedImages.bossPortrait;
+}
+
 function drawBackground(w: number, h: number) {
   if (phase === "title" && drawImageCover(generatedImages.keyVisual, 0, 0, w, h, 1)) {
     const overlay = ctx.createLinearGradient(0, 0, 0, h);
@@ -1094,8 +1107,8 @@ function drawAirMemo(w: number, h: number) {
   ctx.fillStyle = "#f8f2df";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
   const memoStart = phase !== "title" && phase !== "final" ? y + 178 : y + 96;
-  memos.slice(0, 3).forEach((memo, index) => {
-    drawText(`・${memo}`, x + 16, memoStart + index * 20, 306, 16);
+  memos.slice(0, 2).forEach((memo, index) => {
+    drawText(`・${memo}`, x + 16, memoStart + index * 38, 306, 16);
   });
 }
 
@@ -1116,7 +1129,8 @@ function drawMainCopy(w: number, h: number) {
   const panelW = Math.min(760, w - 32);
   const x = (w - panelW) / 2;
   const y = phase === "title" ? h * 0.22 : Math.max(w < 760 ? 118 : 210, h * 0.18);
-  const panelH = phase === "title" ? 220 : phase === "final" ? Math.min(390, h - y - 96) : 210;
+  const panelH =
+    phase === "title" ? 220 : phase === "final" ? Math.min(390, h - y - 96) : phase === "conversation" && w >= 760 ? 250 : 210;
   drawPanel(x, y, panelW, panelH);
 
   ctx.fillStyle = "#f8f2df";
@@ -1190,7 +1204,30 @@ function drawMainCopy(w: number, h: number) {
     return;
   }
 
-  drawText(body, x + 24, y + 112, panelW - 48, 30);
+  if (phase === "conversation" && w >= 760) {
+    const portraitX = x + panelW - 204;
+    const portraitY = y + 26;
+    drawPanel(portraitX, portraitY, 176, 198, "rgba(248, 242, 223, 0.92)");
+    ctx.save();
+    roundRect(portraitX + 10, portraitY + 10, 156, 132, 8);
+    ctx.clip();
+    drawImageCover(currentSpeakerImage(), portraitX + 10, portraitY + 10, 156, 132, 1);
+    ctx.restore();
+    ctx.fillStyle = "#1f2d27";
+    ctx.font = "900 12px 'Yu Gothic', sans-serif";
+    ctx.fillText("AI生成ポートレート", portraitX + 14, portraitY + 162);
+    ctx.font = "700 11px 'Yu Gothic', sans-serif";
+    ctx.fillText(currentConversation().likes, portraitX + 14, portraitY + 182);
+
+    ctx.fillStyle = "#f8f2df";
+    ctx.font = "700 18px 'Yu Gothic', sans-serif";
+    drawText(body, x + 24, y + 112, panelW - 250, 30);
+    ctx.fillStyle = "#d9c98d";
+    ctx.font = "700 13px 'Yu Gothic', sans-serif";
+    drawText(`空気プロファイル: ${currentConversation().trait}`, x + 24, y + 182, panelW - 250, 20);
+  } else {
+    drawText(body, x + 24, y + 112, panelW - 48, 30);
+  }
 
   if (phase === "shot") {
     ctx.fillStyle = "#e7d397";
