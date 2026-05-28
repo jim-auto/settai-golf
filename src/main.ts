@@ -44,8 +44,24 @@ type ShotChoice = {
   label: string;
   hint: string;
   power: number;
+  curve: number;
   delta: Partial<Stats>;
   message: string;
+};
+
+type HoleLayout = {
+  name: string;
+  yards: number;
+  par: number;
+  pinX: number;
+  greenY: number;
+  bunkerX: number;
+  waterX: number;
+};
+
+type BallPoint = {
+  x: number;
+  y: number;
 };
 
 const canvasElement = document.querySelector<HTMLCanvasElement>("#game");
@@ -208,6 +224,7 @@ const shotChoices: ShotChoice[] = [
     label: "本気ショット",
     hint: "飛ぶ。だが飛びすぎる。",
     power: 94,
+    curve: 0.02,
     delta: { boss: -7, company: 2, settai: -4, pride: 10, weird: 2 },
     message: "会心の当たり。上司の笑顔だけが少し遅れて到着した。"
   },
@@ -215,6 +232,7 @@ const shotChoices: ShotChoice[] = [
     label: "忖度ショット",
     hint: "少しだけ曲げる高度技術",
     power: 62,
+    curve: -0.06,
     delta: { boss: 8, settai: 10, weird: 2, pride: -4, promotion: 4 },
     message: "ラフの浅いところへ。ミスに見えて、計算に見えない。"
   },
@@ -222,6 +240,7 @@ const shotChoices: ShotChoice[] = [
     label: "ドラマ演出",
     hint: "木に当てて戻すタイプの物語",
     power: 48,
+    curve: 0.14,
     delta: { boss: 5, settai: 8, weird: 6, pressure: 2, fatigue: 4 },
     message: "カーン、という音のあと謎の拍手。接待には効果音がある。"
   },
@@ -229,6 +248,7 @@ const shotChoices: ShotChoice[] = [
     label: "盛り上げ優先",
     hint: "リアクションで稼ぐ",
     power: 55,
+    curve: 0.08,
     delta: { boss: 6, settai: 9, company: 3, fatigue: 5, weird: -1 },
     message: "打球より声量が飛んだ。場は温まった。"
   },
@@ -236,9 +256,17 @@ const shotChoices: ShotChoice[] = [
     label: "安全プレイ",
     hint: "地味だが失点しにくい",
     power: 70,
+    curve: -0.01,
     delta: { boss: 3, company: 6, settai: 3, weird: -4, pressure: -2 },
     message: "無難。無難すぎて、会話の責任が戻ってきた。"
   }
+];
+
+const holeLayouts: HoleLayout[] = [
+  { name: "松風 1番", yards: 318, par: 4, pinX: 0.58, greenY: 0.15, bunkerX: 0.72, waterX: 0.23 },
+  { name: "霞 2番", yards: 286, par: 4, pinX: 0.46, greenY: 0.16, bunkerX: 0.28, waterX: 0.78 },
+  { name: "稟議 3番", yards: 342, par: 4, pinX: 0.62, greenY: 0.14, bunkerX: 0.18, waterX: 0.48 },
+  { name: "根回し 4番", yards: 301, par: 4, pinX: 0.42, greenY: 0.16, bunkerX: 0.69, waterX: 0.18 }
 ];
 
 const incidents: Incident[] = [
@@ -357,6 +385,10 @@ let finalDetails: string[] = [];
 let activeShot: ShotChoice | null = null;
 let pendingShotMessage = "";
 let shotTarget = 0.42;
+let ballLanding: BallPoint = { x: 0.5, y: 0.82 };
+let ballTrail: BallPoint[] = [];
+let lastLie = "ティー";
+let lastDistanceToPin = 0;
 let bossMood: Mood = "neutral";
 let roomMood: Mood = "neutral";
 let playerMood: Mood = "neutral";
@@ -581,6 +613,17 @@ function pickIncident() {
   return incidents[(hole + Math.floor(Math.random() * incidents.length)) % incidents.length];
 }
 
+function currentHoleLayout() {
+  return holeLayouts[(hole - 1) % holeLayouts.length];
+}
+
+function resetBallForHole() {
+  ballLanding = { x: 0.5, y: 0.86 };
+  ballTrail = [{ ...ballLanding }];
+  lastLie = "ティー";
+  lastDistanceToPin = currentHoleLayout().yards;
+}
+
 function showTitle() {
   phase = "title";
   selectedMessage = "";
@@ -591,6 +634,7 @@ function showTitle() {
   finalDetails = [];
   activeShot = null;
   pendingShotMessage = "";
+  resetBallForHole();
   bossMood = "neutral";
   roomMood = "neutral";
   playerMood = "neutral";
@@ -607,6 +651,7 @@ function showTitle() {
       fatigue: 8,
       promotion: 30
     };
+    resetBallForHole();
     addMemo("本日のミッション: 自然に褒めて、自然に少し負ける。");
     showConversation();
   });
@@ -657,6 +702,36 @@ function currentShotTiming() {
   return (Math.sin(animationTime * 3.6) + 1) / 2;
 }
 
+function judgeLie(point: BallPoint) {
+  const layout = currentHoleLayout();
+  const lateral = Math.abs(point.x - 0.5);
+  const greenDistance = Math.hypot((point.x - layout.pinX) * 1.6, (point.y - layout.greenY) * 1.25);
+  const bunkerDistance = Math.hypot(point.x - layout.bunkerX, point.y - 0.28);
+  const waterDistance = Math.hypot(point.x - layout.waterX, point.y - 0.54);
+
+  if (point.x < 0.04 || point.x > 0.96 || point.y < 0.06 || point.y > 0.93) return "OB";
+  if (waterDistance < 0.105) return "池";
+  if (bunkerDistance < 0.11) return "バンカー";
+  if (greenDistance < 0.12) return "グリーン";
+  if (lateral < 0.18 && point.y > 0.18 && point.y < 0.82) return "フェアウェイ";
+  return "ラフ";
+}
+
+function estimateDistanceToPin(point: BallPoint) {
+  const layout = currentHoleLayout();
+  const normalizedDistance = Math.hypot((point.x - layout.pinX) * 1.25, (point.y - layout.greenY) * 1.65);
+  return Math.round(normalizedDistance * layout.yards);
+}
+
+function applyLieDelta(lie: string) {
+  if (lie === "グリーン") return { boss: -1, pride: 3, settai: -1 };
+  if (lie === "フェアウェイ") return { company: 2, settai: 2 };
+  if (lie === "ラフ") return { boss: 3, settai: 3 };
+  if (lie === "バンカー") return { boss: 4, settai: 2, weird: 2, fatigue: 2 };
+  if (lie === "池") return { boss: -6, weird: 7, settai: -5, fatigue: 4 };
+  return { boss: -8, weird: 9, settai: -6, pressure: 4 };
+}
+
 function commitTimedShot() {
   if (!activeShot) return;
   const timing = currentShotTiming();
@@ -664,6 +739,13 @@ function commitTimedShot() {
   const bossShot = 72 + hole * 2 + Math.round(Math.random() * 12);
   lastShotPower = activeShot.power + timingOffset;
   lastScoreDiff = lastShotPower - bossShot;
+  const carryRatio = clamp(((lastShotPower + 8) / 112) * 100) / 100;
+  const landingX = Math.max(0.02, Math.min(0.98, 0.5 + activeShot.curve + (timing - shotTarget) * 0.72));
+  const landingY = Math.max(0.07, Math.min(0.9, 0.88 - carryRatio * 0.76));
+  ballLanding = { x: landingX, y: landingY };
+  ballTrail = [{ x: 0.5, y: 0.86 }, { x: (0.5 + landingX) / 2, y: landingY + 0.12 }, ballLanding];
+  lastLie = judgeLie(ballLanding);
+  lastDistanceToPin = estimateDistanceToPin(ballLanding);
 
   const targetGap = Math.abs(timing - shotTarget);
   if (targetGap < 0.055) {
@@ -680,8 +762,12 @@ function commitTimedShot() {
     addMemo(`タイミング: 無難 (${formatDelta(lastDelta)})`);
   }
 
+  const lieDelta = applyLieDelta(lastLie);
+  applyDelta(lieDelta);
+  addMemo(`ライ: ${lastLie} / 残り${lastDistanceToPin}yd (${formatDelta(lastDelta)})`);
+
   addMemo(`ショット: ${activeShot.label} / 差分 ${lastScoreDiff > 0 ? "+" : ""}${lastScoreDiff}yd`);
-  const message = `${pendingShotMessage} タイミング値 ${Math.round(timing * 100)}%。`;
+  const message = `${pendingShotMessage} ${currentHoleLayout().name}、${lastLie}に着弾。ピンまで残り${lastDistanceToPin}yd。タイミング値 ${Math.round(timing * 100)}%。`;
   activeShot = null;
   resolveShot(message);
 }
@@ -743,6 +829,7 @@ function showResult() {
       return;
     }
     hole += 1;
+    resetBallForHole();
     showConversation();
   });
 }
@@ -1054,7 +1141,7 @@ function drawBossPortrait(x: number, y: number) {
 }
 
 function drawReactionStage(w: number, h: number) {
-  if (phase === "title" || phase === "final" || w < 760) return;
+  if (phase === "title" || phase === "final" || phase === "shot" || phase === "air" || phase === "result" || w < 760) return;
   const stageW = Math.min(560, w - 420);
   if (stageW < 420) return;
   const x = (w - stageW) / 2;
@@ -1073,6 +1160,114 @@ function drawReactionStage(w: number, h: number) {
     drawCharacter("大河内", "上司", x + stageW * 0.5, y - 6, bossMood, "#293044");
   }
   drawCharacter("同伴者", "取引先/社内", x + stageW * 0.78, y, roomMood, "#4a3b52");
+}
+
+function drawGolfCourse(w: number, h: number) {
+  if (phase !== "shot" && phase !== "air" && phase !== "result") return;
+  const courseW = Math.min(600, w - 40);
+  const courseH = Math.min(310, h * 0.38);
+  const x = (w - courseW) / 2;
+  const y = Math.max(405, h * 0.43);
+  const layout = currentHoleLayout();
+
+  if (y + courseH > h - 96) return;
+
+  drawPanel(x, y, courseW, courseH, "rgba(18, 35, 28, 0.78)");
+  ctx.save();
+  roundRect(x + 10, y + 10, courseW - 20, courseH - 20, 8);
+  ctx.clip();
+
+  ctx.fillStyle = "#315f3b";
+  ctx.fillRect(x + 10, y + 10, courseW - 20, courseH - 20);
+
+  const innerX = x + 24;
+  const innerY = y + 24;
+  const innerW = courseW - 48;
+  const innerH = courseH - 48;
+  const px = (value: number) => innerX + value * innerW;
+  const py = (value: number) => innerY + value * innerH;
+
+  ctx.fillStyle = "#78a95c";
+  ctx.beginPath();
+  ctx.moveTo(px(0.46), py(0.9));
+  ctx.bezierCurveTo(px(0.22), py(0.68), px(0.28), py(0.36), px(0.44), py(0.2));
+  ctx.bezierCurveTo(px(0.54), py(0.08), px(0.75), py(0.16), px(0.66), py(0.34));
+  ctx.bezierCurveTo(px(0.58), py(0.52), px(0.76), py(0.76), px(0.54), py(0.9));
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#91bd68";
+  ctx.beginPath();
+  ctx.ellipse(px(layout.pinX), py(layout.greenY), innerW * 0.15, innerH * 0.1, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#d5bf78";
+  ctx.beginPath();
+  ctx.ellipse(px(layout.bunkerX), py(0.28), innerW * 0.09, innerH * 0.055, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#5c98a7";
+  ctx.beginPath();
+  ctx.ellipse(px(layout.waterX), py(0.54), innerW * 0.12, innerH * 0.075, -0.35, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#f8f2df";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px(layout.pinX), py(layout.greenY));
+  ctx.lineTo(px(layout.pinX), py(layout.greenY) - 34);
+  ctx.stroke();
+  ctx.fillStyle = "#b73a34";
+  ctx.beginPath();
+  ctx.moveTo(px(layout.pinX), py(layout.greenY) - 34);
+  ctx.lineTo(px(layout.pinX) + 28, py(layout.greenY) - 25);
+  ctx.lineTo(px(layout.pinX), py(layout.greenY) - 17);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(248,242,223,0.72)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ballTrail.forEach((point, index) => {
+    if (index === 0) ctx.moveTo(px(point.x), py(point.y));
+    else ctx.lineTo(px(point.x), py(point.y));
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = "#f8f2df";
+  ctx.beginPath();
+  ctx.arc(px(ballLanding.x), py(ballLanding.y), 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1d241f";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (activeShot) {
+    const timing = currentShotTiming();
+    const previewX = Math.max(0.02, Math.min(0.98, 0.5 + activeShot.curve + (timing - shotTarget) * 0.72));
+    const previewPower = activeShot.power + Math.round((timing - 0.5) * 38);
+    const previewCarry = clamp(((previewPower + 8) / 112) * 100) / 100;
+    const previewY = Math.max(0.07, Math.min(0.9, 0.88 - previewCarry * 0.76));
+    ctx.strokeStyle = "rgba(231,211,151,0.82)";
+    ctx.setLineDash([6, 7]);
+    ctx.beginPath();
+    ctx.moveTo(px(0.5), py(0.86));
+    ctx.lineTo(px(previewX), py(previewY));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#e7d397";
+    ctx.beginPath();
+    ctx.arc(px(previewX), py(previewY), 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  ctx.fillStyle = "#e7d397";
+  ctx.font = "900 13px 'Yu Gothic', sans-serif";
+  ctx.fillText(`${layout.name} / PAR ${layout.par} / ${layout.yards}yd`, x + 20, y + 28);
+  ctx.fillStyle = "#f8f2df";
+  ctx.font = "700 12px 'Yu Gothic', sans-serif";
+  ctx.fillText(`ライ: ${lastLie} / 残り ${lastDistanceToPin}yd`, x + courseW - 178, y + 28);
 }
 
 function drawAirMemo(w: number, h: number) {
@@ -1250,7 +1445,7 @@ function drawShotMeter(w: number, h: number) {
   if (phase === "shot" && activeShot) {
     const meterW = Math.min(520, w - 48);
     const x = (w - meterW) / 2;
-    const y = h * 0.58;
+    const y = Math.max(520, h - 210);
     const timing = currentShotTiming();
     drawPanel(x, y, meterW, 108, "rgba(248, 242, 223, 0.92)");
     ctx.fillStyle = "#1f2d27";
@@ -1289,7 +1484,7 @@ function drawShotMeter(w: number, h: number) {
 
   if (phase !== "air" && phase !== "result") return;
   const x = Math.max(24, w * 0.5 - 190);
-  const y = h * 0.58;
+  const y = Math.max(520, h - 180);
   drawPanel(x, y, 380, 78, "rgba(248, 242, 223, 0.9)");
   ctx.fillStyle = "#1f2d27";
   ctx.font = "800 13px 'Yu Gothic', sans-serif";
@@ -1311,6 +1506,7 @@ function draw() {
   const h = window.innerHeight;
   ctx.clearRect(0, 0, w, h);
   drawBackground(w, h);
+  drawGolfCourse(w, h);
   drawReactionStage(w, h);
   drawAirMemo(w, h);
   drawBusinessCard(w, h);
