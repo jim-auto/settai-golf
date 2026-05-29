@@ -761,9 +761,19 @@ function nextPointForStage(timing: number, shot: ShotChoice) {
   }
 
   const target = { x: layout.pinX, y: layout.greenY };
+  if (shotStage === 3) {
+    const cup = target;
+    const read = (timing - shotTarget) * 0.12 + shot.curve * 0.16;
+    const pace = shot.label === "本気ショット" ? 1.18 : shot.label === "安全プレイ" ? 0.78 : shot.label === "忖度ショット" ? 0.92 : 0.86;
+    return {
+      x: Math.max(0.02, Math.min(0.98, ballLanding.x + (cup.x - ballLanding.x) * pace + read)),
+      y: Math.max(0.06, Math.min(0.9, ballLanding.y + (cup.y - ballLanding.y) * pace + Math.abs(read) * 0.06))
+    };
+  }
+
   const aggressiveness = shot.label === "本気ショット" ? 1.08 : shot.label === "安全プレイ" ? 0.82 : shot.label === "忖度ショット" ? 0.92 : 0.75;
-  const progress = shotStage === 2 ? aggressiveness * (0.78 + timing * 0.22) : aggressiveness * (0.9 + timing * 0.16);
-  const miss = (timing - shotTarget) * (shotStage === 2 ? 0.2 : 0.08) + shot.curve * 0.25;
+  const progress = aggressiveness * (0.78 + timing * 0.22);
+  const miss = (timing - shotTarget) * 0.2 + shot.curve * 0.25;
   return {
     x: Math.max(0.02, Math.min(0.98, ballLanding.x + (target.x - ballLanding.x) * progress + miss)),
     y: Math.max(0.06, Math.min(0.9, ballLanding.y + (target.y - ballLanding.y) * progress + Math.abs(miss) * 0.18))
@@ -1248,8 +1258,90 @@ function drawReactionStage(w: number, h: number) {
   drawCharacter("同伴者", "取引先/社内", x + stageW * 0.78, y, roomMood, "#4a3b52");
 }
 
+function drawPuttingGreen(w: number, h: number) {
+  if (phase !== "shot" || shotStage !== 3) return false;
+  const greenW = Math.min(700, w - 420);
+  const greenH = Math.min(300, h * 0.34);
+  const x = (w - greenW) / 2;
+  const y = Math.max(370, h * 0.41);
+  if (greenW < 420 || y + greenH > h - 150) return false;
+
+  const layout = currentHoleLayout();
+  drawPanel(x, y, greenW, greenH, "rgba(18, 35, 28, 0.78)");
+  ctx.save();
+  roundRect(x + 10, y + 10, greenW - 20, greenH - 20, 8);
+  ctx.clip();
+  ctx.fillStyle = "#6fa75f";
+  ctx.fillRect(x + 10, y + 10, greenW - 20, greenH - 20);
+
+  const innerX = x + 26;
+  const innerY = y + 26;
+  const innerW = greenW - 52;
+  const innerH = greenH - 52;
+  const local = (point: BallPoint) => ({
+    x: innerX + (point.x - (layout.pinX - 0.22)) * (innerW / 0.44),
+    y: innerY + (point.y - (layout.greenY - 0.18)) * (innerH / 0.36)
+  });
+  const cup = local({ x: layout.pinX, y: layout.greenY });
+  const ball = local(ballLanding);
+
+  for (let i = 0; i < 7; i += 1) {
+    ctx.strokeStyle = i % 2 === 0 ? "rgba(248,242,223,0.14)" : "rgba(25,55,32,0.22)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 20, y + 46 + i * 34);
+    ctx.bezierCurveTo(x + 200, y + 18 + i * 26, x + 430, y + 86 + i * 20, x + greenW - 20, y + 42 + i * 30);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(30,80,35,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(cup.x, cup.y, 70, 44, -0.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#1c1b17";
+  ctx.beginPath();
+  ctx.arc(cup.x, cup.y, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f8f2df";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const feedbackAge = animationTime - shotFeedbackAt;
+  const ballProgress = Math.min(1, Math.max(0, feedbackAge / 0.75));
+  const previous = local(previousBall);
+  const target = local(ballLanding);
+  const visible = feedbackAge >= 0 && feedbackAge < 0.9 ? { x: previous.x + (target.x - previous.x) * ballProgress, y: previous.y + (target.y - previous.y) * ballProgress } : ball;
+
+  ctx.strokeStyle = "rgba(248,242,223,0.7)";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(ball.x, ball.y);
+  ctx.quadraticCurveTo((ball.x + cup.x) / 2 + 34, (ball.y + cup.y) / 2 - 18, cup.x, cup.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#f8f2df";
+  ctx.beginPath();
+  ctx.arc(visible.x, visible.y, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1d241f";
+  ctx.stroke();
+
+  ctx.restore();
+  ctx.fillStyle = "#e7d397";
+  ctx.font = "900 13px 'Yu Gothic', sans-serif";
+  ctx.fillText(`PUTTING GREEN / 残り${lastDistanceToPin}yd / 第3打`, x + 20, y + 28);
+  ctx.fillStyle = "#f8f2df";
+  ctx.font = "700 12px 'Yu Gothic', sans-serif";
+  ctx.fillText("傾斜: 右へ流れる / 理想: 入るか入らないかの距離感", x + greenW - 330, y + 28);
+  return true;
+}
+
 function drawGolfCourse(w: number, h: number) {
   if (phase !== "shot" && phase !== "air" && phase !== "result") return;
+  if (drawPuttingGreen(w, h)) return;
   const courseW = Math.min(700, w - 420);
   const courseH = Math.min(300, h * 0.34);
   const x = (w - courseW) / 2;
