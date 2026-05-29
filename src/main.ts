@@ -64,6 +64,12 @@ type BallPoint = {
   y: number;
 };
 
+type Club = {
+  name: string;
+  power: number;
+  control: number;
+};
+
 const canvasElement = document.querySelector<HTMLCanvasElement>("#game");
 const panelElement = document.querySelector<HTMLDivElement>("#choice-panel");
 
@@ -269,6 +275,13 @@ const holeLayouts: HoleLayout[] = [
   { name: "根回し 4番", yards: 301, par: 4, pinX: 0.42, greenY: 0.16, bunkerX: 0.69, waterX: 0.18 }
 ];
 
+const clubs: Club[] = [
+  { name: "Driver", power: 1.12, control: 0.76 },
+  { name: "Iron", power: 0.82, control: 0.94 },
+  { name: "Wedge", power: 0.52, control: 1.14 },
+  { name: "Putter", power: 0.2, control: 1.32 }
+];
+
 const incidents: Incident[] = [
   {
     title: "上司のボールが見つからない",
@@ -393,6 +406,8 @@ let lastDistanceToPin = 0;
 let shotStage = 1;
 let strokeCount = 0;
 let bossStrokeCount = 4;
+let wind = { x: 0, y: 0, label: "無風" };
+let selectedClub: Club = clubs[0];
 let shotFeedback = "";
 let shotFeedbackTone: "good" | "bad" | "neutral" = "neutral";
 let shotFeedbackAt = -999;
@@ -624,6 +639,24 @@ function currentHoleLayout() {
   return holeLayouts[(hole - 1) % holeLayouts.length];
 }
 
+function rollWind() {
+  const values = [
+    { x: 0.0, y: 0.0, label: "無風" },
+    { x: 0.04, y: -0.02, label: "右フォロー" },
+    { x: -0.04, y: 0.01, label: "左から重役風" },
+    { x: 0.02, y: 0.04, label: "向かい風" },
+    { x: -0.02, y: -0.03, label: "追い風" }
+  ];
+  wind = values[(hole + Math.floor(Math.random() * values.length)) % values.length];
+}
+
+function recommendedClub() {
+  if (shotStage === 3) return clubs[3];
+  if (shotStage === 2 || lastDistanceToPin < 90) return clubs[2];
+  if (lastDistanceToPin < 190) return clubs[1];
+  return clubs[0];
+}
+
 function resetBallForHole() {
   ballLanding = { x: 0.5, y: 0.86 };
   previousBall = { ...ballLanding };
@@ -633,6 +666,8 @@ function resetBallForHole() {
   shotStage = 1;
   strokeCount = 0;
   bossStrokeCount = 4 + Math.floor(Math.random() * 2);
+  rollWind();
+  selectedClub = clubs[0];
   shotFeedback = "";
   shotFeedbackAt = -999;
 }
@@ -704,6 +739,7 @@ function showShot() {
     const choice = shotChoices[index];
     applyDelta(choice.delta);
     const preferenceMessage = applyShotPreference(choice);
+    selectedClub = recommendedClub();
     activeShot = choice;
     pendingShotMessage = preferenceMessage ? `${choice.message} ${preferenceMessage}` : choice.message;
     shotTarget = choice.label === currentConversation().favoredShot ? 0.42 : 0.48;
@@ -752,19 +788,21 @@ function stageName() {
 
 function nextPointForStage(timing: number, shot: ShotChoice) {
   const layout = currentHoleLayout();
+  const club = selectedClub;
   if (shotStage === 1) {
-    const carryRatio = clamp(((shot.power + Math.round((timing - 0.5) * 38) + 8) / 112) * 100) / 100;
+    const carryRatio = clamp((((shot.power * club.power) + Math.round((timing - 0.5) * 38) + 8) / 112) * 100) / 100;
+    const miss = (timing - shotTarget) * (0.72 / club.control);
     return {
-      x: Math.max(0.02, Math.min(0.98, 0.5 + shot.curve + (timing - shotTarget) * 0.72)),
-      y: Math.max(0.07, Math.min(0.9, 0.88 - carryRatio * 0.76))
+      x: Math.max(0.02, Math.min(0.98, 0.5 + shot.curve + miss + wind.x)),
+      y: Math.max(0.07, Math.min(0.9, 0.88 - carryRatio * 0.76 + wind.y))
     };
   }
 
   const target = { x: layout.pinX, y: layout.greenY };
   if (shotStage === 3) {
     const cup = target;
-    const read = (timing - shotTarget) * 0.12 + shot.curve * 0.16;
-    const pace = shot.label === "本気ショット" ? 1.18 : shot.label === "安全プレイ" ? 0.78 : shot.label === "忖度ショット" ? 0.92 : 0.86;
+    const read = (timing - shotTarget) * (0.12 / club.control) + shot.curve * 0.16 + wind.x * 0.25;
+    const pace = (shot.label === "本気ショット" ? 1.18 : shot.label === "安全プレイ" ? 0.78 : shot.label === "忖度ショット" ? 0.92 : 0.86) * club.power * 4.2;
     return {
       x: Math.max(0.02, Math.min(0.98, ballLanding.x + (cup.x - ballLanding.x) * pace + read)),
       y: Math.max(0.06, Math.min(0.9, ballLanding.y + (cup.y - ballLanding.y) * pace + Math.abs(read) * 0.06))
@@ -772,11 +810,11 @@ function nextPointForStage(timing: number, shot: ShotChoice) {
   }
 
   const aggressiveness = shot.label === "本気ショット" ? 1.08 : shot.label === "安全プレイ" ? 0.82 : shot.label === "忖度ショット" ? 0.92 : 0.75;
-  const progress = aggressiveness * (0.78 + timing * 0.22);
-  const miss = (timing - shotTarget) * 0.2 + shot.curve * 0.25;
+  const progress = aggressiveness * club.power * (0.78 + timing * 0.22);
+  const miss = (timing - shotTarget) * (0.2 / club.control) + shot.curve * 0.25 + wind.x * 0.6;
   return {
     x: Math.max(0.02, Math.min(0.98, ballLanding.x + (target.x - ballLanding.x) * progress + miss)),
-    y: Math.max(0.06, Math.min(0.9, ballLanding.y + (target.y - ballLanding.y) * progress + Math.abs(miss) * 0.18))
+    y: Math.max(0.06, Math.min(0.9, ballLanding.y + (target.y - ballLanding.y) * progress + Math.abs(miss) * 0.18 + wind.y * 0.4))
   };
 }
 
@@ -790,7 +828,7 @@ function commitTimedShot() {
   if (!activeShot) return;
   const timing = currentShotTiming();
   const timingOffset = Math.round((timing - 0.5) * 38);
-  lastShotPower = activeShot.power + timingOffset;
+  lastShotPower = Math.round(activeShot.power * selectedClub.power + timingOffset);
   const previous = { ...ballLanding };
   previousBall = previous;
   ballLanding = nextPointForStage(timing, activeShot);
@@ -832,7 +870,7 @@ function commitTimedShot() {
 
   addMemo(`${stageName()}: ${activeShot.label} / ${lastLie} 残り${lastDistanceToPin}yd`);
   const holed = shotStage === 3 && lastDistanceToPin <= 10;
-  const message = `${pendingShotMessage} ${stageName()}は${lastLie}。ピンまで残り${lastDistanceToPin}yd。タイミング値 ${Math.round(timing * 100)}%。`;
+  const message = `${pendingShotMessage} ${selectedClub.name}で${stageName()}、${lastLie}。ピンまで残り${lastDistanceToPin}yd。風は${wind.label}。`;
   activeShot = null;
   if (shotStage < 3 && lastLie !== "OB" && lastLie !== "池") {
     selectedMessage = `${message} 次は${shotStage === 1 ? "アプローチ" : "パット"}。`;
@@ -1335,7 +1373,7 @@ function drawPuttingGreen(w: number, h: number) {
   ctx.fillText(`PUTTING GREEN / 残り${lastDistanceToPin}yd / 第3打`, x + 20, y + 28);
   ctx.fillStyle = "#f8f2df";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
-  ctx.fillText("傾斜: 右へ流れる / 理想: 入るか入らないかの距離感", x + greenW - 330, y + 28);
+  ctx.fillText(`傾斜: 右へ流れる / WIND ${wind.label} / CLUB ${selectedClub.name}`, x + greenW - 360, y + 28);
   return true;
 }
 
@@ -1489,6 +1527,9 @@ function drawGolfCourse(w: number, h: number) {
   ctx.fillStyle = "#f8f2df";
   ctx.font = "700 12px 'Yu Gothic', sans-serif";
   ctx.fillText(`自分 ${strokeCount}打 / 上司想定 ${bossStrokeCount}打 / ${lastLie} 残り${lastDistanceToPin}yd`, x + courseW - 286, y + 28);
+  ctx.fillStyle = "#d9c98d";
+  ctx.font = "800 12px 'Yu Gothic', sans-serif";
+  ctx.fillText(`CLUB ${selectedClub.name} / WIND ${wind.label}`, x + 20, y + 48);
 
   const legendX = x + 20;
   const legendY = y + courseH - 24;
@@ -1688,6 +1729,7 @@ function drawMainCopy(w: number, h: number) {
     ctx.fillStyle = "#d9c98d";
     ctx.font = "800 12px 'Yu Gothic', sans-serif";
     ctx.fillText(`CADDIE: ${lastLie}から残り${lastDistanceToPin}yd。理想は上司と同じか+1打。`, x + 24, noteY);
+    ctx.fillText(`CLUB: ${recommendedClub().name} / WIND: ${wind.label}`, x + panelW - 245, noteY);
   }
 
   if (phase === "result" && memos[0] && !isGolfPhase) {
